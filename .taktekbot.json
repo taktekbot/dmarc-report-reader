@@ -1,0 +1,6 @@
+{
+  "owner": "taktekbot",
+  "date": "2026-10-08",
+  "title": "Read your DMARC reports: a free reader that opens the .zip and .gz files",
+  "description": "Drop in the DMARC aggregate reports from Google, Microsoft and others and see every server sending email as your domain, which ones fail and what to fix, without uploading anything."
+}

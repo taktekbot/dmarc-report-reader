@@ -1,0 +1,360 @@
+<!--
+title: Read your DMARC reports: a free reader that opens the .zip and .gz files
+description: Drop in the DMARC aggregate reports from Google, Microsoft and others and see every server sending email as your domain, which ones fail and what to fix. Nothing leaves your browser.
+stand: Every server sending email as your domain, in one list. The files never leave this page.
+category: DeveloperApplication
+-->
+      <p>To read a DMARC report, drop the attachment here: the <code>.zip</code>, <code>.gz</code> or <code>.xml</code> file, as it arrived. This page opens it in your browser and lists every server that sent email using your domain, how many messages each sent, whether they passed DMARC, and what to fix for the ones that failed. Nothing is uploaded.</p>
+      <p>The reports come from the <code>rua=</code> address in your DMARC record. Each receiver that got mail "from" your domain (Gmail, Outlook.com, Yahoo and others) usually sends one a day. If you don't get any yet, set up the record first: <a href="/blog/why-business-emails-go-to-spam/">why business emails go to spam, and how to fix SPF, DKIM and DMARC</a> walks through it.</p>
+
+      <h2>Step 1: add your reports</h2>
+      <div class="drr">
+        <label for="drr-file">Report files (.zip, .gz or .xml; pick several at once if you have them)</label>
+        <div class="drr-drop" id="drr-drop">
+          <input id="drr-file" type="file" multiple accept=".zip,.gz,.xml,application/zip,application/gzip,text/xml">
+          <p>Drop files here, or <button type="button" class="drr-link" id="drr-pick">choose files</button>.</p>
+        </div>
+        <details class="drr-paste">
+          <summary>Or paste the XML</summary>
+          <textarea id="drr-xml" rows="6" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="&lt;?xml version=&quot;1.0&quot;?&gt;&#10;&lt;feedback&gt; ..."></textarea>
+        </details>
+        <p class="drr-row"><button type="button" class="drr-btn" id="drr-sample">Try it with a sample report</button> <button type="button" class="drr-btn drr-btn--quiet" id="drr-clear" hidden>Clear</button></p>
+      </div>
+
+      <div id="drr-errors"></div>
+      <div class="drr-card" id="drr-card" hidden></div>
+      <div id="drr-out"></div>
+
+      <h2>Reading the result</h2>
+      <p>Each line is one server (an IP address) that sent mail with your domain in the From: line, added up across all the reports you dropped in. Failing servers come first, biggest first.</p>
+      <ul>
+        <li><strong>PASS</strong> means the receiver saw SPF or DKIM pass for your own domain. That message is safe when you tighten your policy.</li>
+        <li><strong>FAIL</strong> means neither did. With <code>p=quarantine</code> these messages go to spam; with <code>p=reject</code> they bounce.</li>
+      </ul>
+      <p>The domains on each line are your best clue to who the sender is. An SPF result "for <code>bounces.something.com</code>" or a DKIM signature "for <code>something.com</code>" names the service that sent it: your newsletter tool, your shop, your booking system. The IP link looks up who owns the address on a third-party site (it sends that IP there, nothing else).</p>
+
+      <h2>What to do about each failure</h2>
+      <ol>
+        <li><strong>DKIM passes, but for another domain.</strong> A service is signing your mail with its own domain. In that service's settings, look for "custom domain", "domain authentication" or "DKIM", add the records it gives you, and turn signing on. Once it signs as your domain, the line turns to PASS.</li>
+        <li><strong>SPF passes, but for another domain.</strong> The service uses its own bounce address. That's normal, and it doesn't count for DMARC. Fix DKIM as above; some services also let you set a custom return-path on your domain.</li>
+        <li><strong>Nothing passes, and you recognise the sender.</strong> A forgotten system: an old website, an accounting app sending invoices, a scanner that emails. Add it to your SPF record or turn on DKIM in it. If you can't, send its mail from a different address or a subdomain.</li>
+        <li><strong>Nothing passes, and the IP belongs to nobody you use.</strong> Someone else is sending as your domain, or it's spam with a forged From:. That's the mail <code>p=reject</code> is for. You don't need to do anything for that source.</li>
+        <li><strong>SPF fails but DKIM passes for your domain.</strong> Usually forwarding: someone's mailbox forwards your email on, so the IP changes but the signature survives. The line already shows PASS. Nothing to fix.</li>
+      </ol>
+
+      <h2>When to move past p=none</h2>
+      <p>Collect two to four weeks of reports. When every sender you recognise shows PASS and what's left failing is either forwarding or senders you don't know, change your DMARC record from <code>p=none</code> to <code>p=quarantine</code>. Keep reading the reports for another few weeks, then move to <code>p=reject</code>. If a real sender shows up failing after the change, fix it, or step back to <code>p=none</code> while you do.</p>
+      <p>The "disposition" on a line tells you what the receiver did: <code>none</code> delivered it, <code>quarantine</code> sent it to spam, <code>reject</code> refused it. Under <code>p=none</code> everything says <code>none</code>, so failures cost you nothing yet. That's why you read reports before you tighten.</p>
+
+      <h2>Reading one record by hand</h2>
+      <p>If you'd rather read the XML yourself, open the file in a text editor (unzip it first). Each sender is one <code>&lt;record&gt;</code>. This is the part that matters, trimmed:</p>
+      <pre><code>&lt;row&gt;
+  &lt;source_ip&gt;198.51.100.25&lt;/source_ip&gt;   the server that sent it
+  &lt;count&gt;86&lt;/count&gt;                     how many messages
+  &lt;policy_evaluated&gt;
+    &lt;disposition&gt;none&lt;/disposition&gt;     what the receiver did
+    &lt;dkim&gt;fail&lt;/dkim&gt;                   DKIM, after alignment
+    &lt;spf&gt;fail&lt;/spf&gt;                     SPF, after alignment
+  &lt;/policy_evaluated&gt;
+&lt;/row&gt;
+&lt;identifiers&gt;
+  &lt;header_from&gt;example.com&lt;/header_from&gt;  your domain, in the From: line
+&lt;/identifiers&gt;
+&lt;auth_results&gt;
+  &lt;dkim&gt;&lt;domain&gt;mailer.example.net&lt;/domain&gt;&lt;result&gt;pass&lt;/result&gt;&lt;/dkim&gt;
+  &lt;spf&gt;&lt;domain&gt;bounces.mailer.example.net&lt;/domain&gt;&lt;result&gt;pass&lt;/result&gt;&lt;/spf&gt;
+&lt;/auth_results&gt;</code></pre>
+      <p>The trap is that there are two sets of results. <code>auth_results</code> says DKIM and SPF passed, for the service's own domains. <code>policy_evaluated</code> says both failed, because neither domain matches <code>example.com</code>. DMARC only counts <code>policy_evaluated</code>. This record is failure 1 in the list above.</p>
+      <p>The file name tells you who sent the report and for which days: <code>receiver!yourdomain!start!end</code>, where start and end are Unix timestamps. Some receivers send <code>.zip</code>, others <code>.xml.gz</code>; this page opens both.</p>
+
+      <h2>What this can't tell you</h2>
+      <ul>
+        <li>Who owns an IP address. A browser page can't look that up without sending the IP somewhere, so it gives you a link instead.</li>
+        <li>Anything about receivers that don't send reports. Not every mailbox provider does, so the reports cover only part of your mail.</li>
+        <li>The content of any message. Aggregate reports only have counts, IPs, domains and results. Failure reports (<code>ruf=</code>) can have more, and few receivers send them.</li>
+      </ul>
+      <p>Sources: <a href="https://www.rfc-editor.org/rfc/rfc9990.html">RFC 9990</a>, the DMARC aggregate reporting standard published in May 2026 (the XML format, the result values and the file name), and <a href="https://www.rfc-editor.org/rfc/rfc9989.html">RFC 9989</a> for the policy itself. To check the records behind all this, use the <a href="/spf-dkim-dmarc-check/">SPF, DKIM and DMARC checker</a>.</p>
+      <p>You read your own reports instead of paying someone to watch them. I write step-by-step guides for people who look after their own website and email: they're on <a href="/blog/">the blog</a>.</p>
+
+      <style>
+        .drr { margin: 0 0 16px; padding: 18px 20px; background: var(--paper-2); border-radius: 6px; }
+        .drr label { display: block; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; color: var(--faint); margin-bottom: 8px; }
+        .drr-drop { position: relative; padding: 22px 16px; text-align: center; background: var(--paper); border: 1px dashed var(--rule); border-radius: 4px; }
+        .drr-drop.is-over { border-color: var(--signal); }
+        .drr-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .post .drr-drop p { margin: 0; font-size: 15px; color: var(--muted); }
+        .drr-link { padding: 0; font: inherit; color: var(--signal); background: none; border: 0; text-decoration: underline; cursor: pointer; }
+        .drr-paste { margin-top: 14px; }
+        .drr-paste summary { cursor: pointer; font-size: 15px; color: var(--muted); }
+        .drr textarea { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 11px 13px; font-family: var(--mono); font-size: 13px; line-height: 1.5;
+          color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; resize: vertical; }
+        .drr textarea:focus-visible, .drr-btn:focus-visible, .drr-link:focus-visible, .drr-drop:focus-within { outline: 2px solid var(--signal); outline-offset: 1px; }
+        .post .drr-row { margin: 14px 0 0; }
+        .drr-btn { padding: 8px 14px; font-family: var(--mono); font-size: 13px; color: var(--paper); background: var(--ink); border: 0; border-radius: 4px; cursor: pointer; }
+        .drr-btn--quiet { color: var(--ink); background: none; border: 1px solid var(--rule); }
+        .post .drr-err { margin: 0 0 12px; padding: 10px 14px; border-left: 3px solid var(--signal); font-size: 15px; }
+        .drr-card { margin: 8px 0 24px; padding: 20px 22px; border: 2px solid var(--ink); border-radius: 6px; }
+        .post .drr-card p { margin: 0; font-size: 15px; }
+        .post .drr-card p + p { margin-top: 8px; }
+        .post .drr-card__big { font-size: 22px; line-height: 1.3; color: var(--ink); font-weight: 500; }
+        .post .drr-card__note { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+        .post .drr-sub { margin: 24px 0 6px; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; color: var(--faint); }
+        .post .drr-list { list-style: none; margin: 0 0 24px; padding: 0; }
+        .post .drr-list li { display: flex; gap: 10px; margin: 0; padding: 11px 0; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.5; }
+        .post .drr-list li:last-child { border-bottom: 1px solid var(--rule); }
+        .drr-tag { flex: 0 0 3.2rem; padding-top: 3px; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--faint); }
+        .drr-tag--fail { color: var(--signal); font-weight: 600; }
+        .drr-main { flex: 1 1 auto; min-width: 0; }
+        .post .drr-main p { margin: 0; }
+        .post .drr-main p + p { margin-top: 4px; }
+        .post .drr-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+        .post .drr-head code { font-size: 14px; }
+        .drr-count { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+        .post .drr-meta { font-size: 14px; color: var(--muted); }
+        .post .drr-meta code, .post .drr-main code { overflow-wrap: anywhere; }
+        .post .drr-hint { font-size: 14px; }
+        .post .drr-reports li { display: block; font-size: 14px; color: var(--muted); }
+      </style>
+
+      <script>
+        (function () {
+          // PARSERS-START
+          function kids(el, name) {
+            var out = [];
+            if (!el) return out;
+            for (var i = 0; i < el.children.length; i++) if (el.children[i].localName === name) out.push(el.children[i]);
+            return out;
+          }
+          function kid(el, name) { return kids(el, name)[0] || null; }
+          function txt(el, path) {
+            var parts = path.split('/');
+            for (var i = 0; i < parts.length && el; i++) el = kid(el, parts[i]);
+            return el ? el.textContent.trim() : '';
+          }
+
+          // One <feedback> document into plain objects. Works with and without
+          // the RFC 9990 namespace, since only local names are compared.
+          function parseReport(doc) {
+            var fb = doc.documentElement;
+            if (!fb || fb.localName !== 'feedback') throw new Error('this isn\'t a DMARC aggregate report (no <feedback> at the top)');
+            var md = kid(fb, 'report_metadata'), pp = kid(fb, 'policy_published');
+            var rep = {
+              org: txt(md, 'org_name') || 'an unnamed receiver',
+              begin: +txt(md, 'date_range/begin') || 0,
+              end: +txt(md, 'date_range/end') || 0,
+              domain: txt(pp, 'domain'),
+              p: txt(pp, 'p'),
+              records: []
+            };
+            kids(fb, 'record').forEach(function (r) {
+              var row = kid(r, 'row'), pe = kid(row, 'policy_evaluated'), ids = kid(r, 'identifiers'), ar = kid(r, 'auth_results');
+              rep.records.push({
+                ip: txt(row, 'source_ip'),
+                count: parseInt(txt(row, 'count'), 10) || 0,
+                disp: txt(pe, 'disposition') || 'none',
+                dkim: txt(pe, 'dkim'),
+                spf: txt(pe, 'spf'),
+                reasons: kids(pe, 'reason').map(function (x) { return txt(x, 'type'); }).filter(Boolean),
+                from: txt(ids, 'header_from').toLowerCase(),
+                envFrom: txt(ids, 'envelope_from').toLowerCase(),
+                dkimAuth: kids(ar, 'dkim').map(function (x) { return { domain: txt(x, 'domain').toLowerCase(), selector: txt(x, 'selector'), result: txt(x, 'result') }; }),
+                spfAuth: kids(ar, 'spf').map(function (x) { return { domain: txt(x, 'domain').toLowerCase(), result: txt(x, 'result') }; }),
+                org: rep.org
+              });
+            });
+            return rep;
+          }
+
+          // Add records up by sending IP and From: domain, across all reports.
+          function combine(reports) {
+            var map = {}, list = [];
+            reports.forEach(function (rep) {
+              rep.records.forEach(function (r) {
+                var pass = r.dkim === 'pass' || r.spf === 'pass';
+                var k = r.ip + '|' + r.from + '|' + pass;
+                var s = map[k];
+                if (!s) {
+                  s = map[k] = { ip: r.ip, from: r.from, pass: pass, count: 0, disp: {}, orgs: {}, dkim: {}, spf: {}, reasons: {}, alignedDkim: false, alignedSpf: false };
+                  list.push(s);
+                }
+                s.count += r.count;
+                s.disp[r.disp] = (s.disp[r.disp] || 0) + r.count;
+                s.orgs[r.org] = 1;
+                if (r.dkim === 'pass') s.alignedDkim = true;
+                if (r.spf === 'pass') s.alignedSpf = true;
+                r.reasons.forEach(function (x) { s.reasons[x] = 1; });
+                r.dkimAuth.forEach(function (d) { s.dkim[d.result + '|' + d.domain + '|' + d.selector] = d; });
+                r.spfAuth.forEach(function (d) { s.spf[d.result + '|' + d.domain] = d; });
+              });
+            });
+            list.forEach(function (s) {
+              s.dkim = Object.keys(s.dkim).map(function (k) { return s.dkim[k]; });
+              s.spf = Object.keys(s.spf).map(function (k) { return s.spf[k]; });
+              s.hint = hint(s);
+            });
+            list.sort(function (a, b) { return (a.pass - b.pass) || (b.count - a.count); });
+            return list;
+          }
+
+          function hint(s) {
+            var dkPass = s.dkim.filter(function (d) { return d.result === 'pass'; });
+            var spPass = s.spf.filter(function (d) { return d.result === 'pass'; });
+            if (s.pass) {
+              if (s.alignedDkim && !s.alignedSpf) return { n: 5, text: 'Passes on DKIM alone. If SPF fails here, the mail was probably forwarded. Nothing to fix.' };
+              return null;
+            }
+            if (dkPass.length) return { n: 1, text: 'DKIM passes, but signed as ' + dkPass.map(function (d) { return code(d.domain); }).join(', ') + ', not your domain. Turn on DKIM for your own domain in that service.' };
+            if (spPass.length) return { n: 2, text: 'SPF passes, but for ' + spPass.map(function (d) { return code(d.domain); }).join(', ') + ', not your domain. Turn on DKIM for your domain in that service.' };
+            return { n: 3, text: 'Nothing passes. If you know this sender, add it to SPF or turn on DKIM in it. If you don\'t, it\'s someone else using your domain, and p=reject is the answer.' };
+          }
+
+          function code(s) { return '<code>' + esc(s) + '</code>'; }
+          function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+          // PARSERS-END
+
+          // Bytes in, XML text(s) out. Gzip and zip are told apart by their first bytes.
+          function inflate(bytes, fmt) {
+            var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(fmt));
+            return new Response(stream).arrayBuffer().then(function (b) { return new Uint8Array(b); });
+          }
+          function unzip(bytes) {
+            var v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), eocd = -1;
+            for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+            if (eocd < 0) return Promise.reject(new Error('the zip file looks damaged'));
+            var n = v.getUint16(eocd + 10, true), at = v.getUint32(eocd + 16, true), jobs = [];
+            for (var e = 0; e < n; e++) {
+              if (v.getUint32(at, true) !== 0x02014b50) break;
+              var method = v.getUint16(at + 10, true), size = v.getUint32(at + 20, true);
+              var nl = v.getUint16(at + 28, true), xl = v.getUint16(at + 30, true), cl = v.getUint16(at + 32, true), loc = v.getUint32(at + 42, true);
+              var name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nl));
+              at += 46 + nl + xl + cl;
+              if (/\/$/.test(name)) continue;
+              var start = loc + 30 + v.getUint16(loc + 26, true) + v.getUint16(loc + 28, true), data = bytes.subarray(start, start + size);
+              if (method === 0) jobs.push(Promise.resolve({ name: name, bytes: data }));
+              else if (method === 8) jobs.push(inflate(data, 'deflate-raw').then(function (nm) { return function (b) { return { name: nm, bytes: b }; }; }(name)));
+              else jobs.push(Promise.reject(new Error(name + ' uses a compression this page can\'t open')));
+            }
+            return Promise.all(jobs);
+          }
+          function open(name, bytes) {
+            if (bytes[0] === 0x1f && bytes[1] === 0x8b) return inflate(bytes, 'gzip').then(function (b) { return open(name.replace(/\.gz$/i, ''), b); });
+            if (bytes[0] === 0x50 && bytes[1] === 0x4b) return unzip(bytes).then(function (files) {
+              return Promise.all(files.map(function (f) { return open(f.name, f.bytes); })).then(function (x) { return [].concat.apply([], x); });
+            });
+            return Promise.resolve([{ name: name, text: new TextDecoder().decode(bytes) }]);
+          }
+
+          var $ = function (id) { return document.getElementById(id); };
+          var reports = [], errors = [], counted = false;
+
+          function addText(name, text) {
+            var doc = new DOMParser().parseFromString(text, 'text/xml');
+            if (doc.getElementsByTagName('parsererror').length) throw new Error('the XML is incomplete or broken');
+            reports.push(parseReport(doc));
+          }
+          function addFiles(files) {
+            return Promise.all([].map.call(files, function (f) {
+              return f.arrayBuffer().then(function (b) { return open(f.name, new Uint8Array(b)); }).then(function (docs) {
+                docs.forEach(function (d) {
+                  try { addText(d.name, d.text); } catch (e) { errors.push(d.name + ': ' + e.message + '.'); }
+                });
+              }, function (e) { errors.push(f.name + ': ' + (e.message || 'couldn\'t open it') + '.'); });
+            })).then(render);
+          }
+
+          function day(t) { return t ? new Date(t * 1000).toISOString().slice(0, 10) : '?'; }
+          function n(x) { return x.toLocaleString('en-US'); }
+          function plural(x, one, many) { return n(x) + ' ' + (x === 1 ? one : many); }
+
+          function render() {
+            $('drr-errors').innerHTML = errors.map(function (e) { return '<p class="drr-err">' + esc(e) + '</p>'; }).join('');
+            $('drr-clear').hidden = !reports.length && !errors.length;
+            var card = $('drr-card'), out = $('drr-out');
+            if (!reports.length) { card.hidden = true; out.innerHTML = ''; return; }
+            var src = combine(reports);
+            var total = 0, failN = 0, failSrc = 0, begin = Infinity, end = 0, domains = {}, policies = {};
+            src.forEach(function (s) { total += s.count; if (!s.pass) { failN += s.count; failSrc++; } });
+            reports.forEach(function (r) {
+              if (r.begin) begin = Math.min(begin, r.begin);
+              end = Math.max(end, r.end);
+              if (r.domain) domains[r.domain] = 1;
+              if (r.p) policies[r.p] = 1;
+            });
+            var pct = total ? Math.round((total - failN) / total * 1000) / 10 : 0;
+            var known = src.filter(function (s) { return !s.pass && s.hint && s.hint.n < 3; }).length;
+            var next = !failN ? 'Every message passed. If this covers two weeks or more, you can move to p=quarantine.'
+              : known ? known + ' failing ' + (known === 1 ? 'source is' : 'sources are') + ' a service signing with its own domain. Fix those first.'
+              : 'The failing sources pass nothing. Check whether you recognise them before you tighten your policy.';
+            card.innerHTML = '<p class="drr-card__big">' + esc(pct + '% of ' + plural(total, 'message', 'messages') + ' passed DMARC.') + '</p>' +
+              '<p>' + esc(plural(src.length, 'source', 'sources') + ' sent mail as ' + (Object.keys(domains).join(', ') || 'your domain') + '. ' +
+                (failN ? plural(failN, 'message', 'messages') + ' from ' + plural(failSrc, 'source', 'sources') + ' failed.' : 'None failed.')) + '</p>' +
+              '<p>' + esc(next) + '</p>' +
+              '<p class="drr-card__note">' + esc(plural(reports.length, 'report', 'reports') + ', ' + day(begin === Infinity ? 0 : begin) + ' to ' + day(end) +
+                '. Policy in the reports: p=' + (Object.keys(policies).join(', p=') || '?') + '.') + '</p>';
+            card.hidden = false;
+
+            var h = '<p class="drr-sub">EVERY SERVER THAT SENT AS YOUR DOMAIN</p><ul class="drr-list">';
+            src.forEach(function (s) {
+              var auth = [];
+              s.spf.forEach(function (d) { auth.push('SPF ' + esc(d.result || '?') + (d.domain ? ' for ' + code(d.domain) : '')); });
+              s.dkim.forEach(function (d) { auth.push('DKIM ' + esc(d.result || '?') + (d.domain ? ' for ' + code(d.domain) : '') + (d.selector ? ' (selector ' + code(d.selector) + ')' : '')); });
+              if (!s.dkim.length) auth.push('no DKIM signature');
+              var disp = Object.keys(s.disp).filter(function (k) { return k !== 'none'; }).map(function (k) { return n(s.disp[k]) + ' ' + esc(k === 'pass' ? 'passed' : k === 'quarantine' ? 'sent to spam' : k === 'reject' ? 'rejected' : k); });
+              var reasons = Object.keys(s.reasons).map(function (r) { return r.replace(/_/g, ' '); });
+              h += '<li><span class="drr-tag' + (s.pass ? '' : ' drr-tag--fail') + '">' + (s.pass ? 'PASS' : 'FAIL') + '</span><span class="drr-main">' +
+                '<p class="drr-head"><a href="https://bgp.he.net/ip/' + encodeURIComponent(s.ip) + '" target="_blank" rel="noopener"><code>' + esc(s.ip) + '</code></a>' +
+                '<span class="drr-count">' + esc(plural(s.count, 'message', 'messages')) + '</span>' +
+                (s.from ? '<span class="drr-meta">From: ' + code(s.from) + '</span>' : '') + '</p>' +
+                '<p class="drr-meta">' + auth.join(' · ') + '</p>' +
+                (disp.length ? '<p class="drr-meta">Receiver did: ' + disp.join(', ') + '</p>' : '') +
+                (reasons.length ? '<p class="drr-meta">Override: ' + esc(reasons.join(', ')) + '</p>' : '') +
+                (s.hint ? '<p class="drr-hint">' + s.hint.text + '</p>' : '') +
+                '<p class="drr-meta">Reported by ' + esc(Object.keys(s.orgs).join(', ')) + '</p>' +
+                '</span></li>';
+            });
+            h += '</ul><p class="drr-sub">REPORTS READ</p><ul class="drr-list drr-reports">' + reports.map(function (r) {
+              return '<li>' + esc(r.org + ', ' + (r.domain || '?') + ', ' + day(r.begin) + ' to ' + day(r.end) + ': ' + plural(r.records.length, 'record', 'records')) + '</li>';
+            }).join('') + '</ul>';
+            out.innerHTML = h;
+            if (!counted && window.gtag) { counted = true; gtag('event', 'dmarc_report_read'); }
+          }
+
+          var SAMPLE = '<?xml version="1.0" encoding="UTF-8"?>\n<feedback>\n <version>1.0</version>\n' +
+            ' <report_metadata><org_name>a large mailbox provider</org_name><report_id>sample-1</report_id>' +
+            '<date_range><begin>1790985600</begin><end>1791071999</end></date_range></report_metadata>\n' +
+            ' <policy_published><domain>example.com</domain><adkim>r</adkim><aspf>r</aspf><p>none</p></policy_published>\n' +
+            rec('192.0.2.10', 412, 'pass', 'pass', [['example.com', 'google', 'pass']], [['example.com', 'pass']]) +
+            rec('198.51.100.25', 86, 'fail', 'fail', [['mailer.example.net', 's1', 'pass']], [['bounces.mailer.example.net', 'pass']]) +
+            rec('203.0.113.7', 14, 'fail', 'fail', [], [['example.com', 'fail']]) +
+            rec('192.0.2.44', 5, 'pass', 'fail', [['example.com', 'google', 'pass']], [['forwarder.example.org', 'softfail']]) +
+            '</feedback>\n';
+          function rec(ip, count, dk, sp, dkims, spfs) {
+            return ' <record>\n  <row><source_ip>' + ip + '</source_ip><count>' + count + '</count>' +
+              '<policy_evaluated><disposition>none</disposition><dkim>' + dk + '</dkim><spf>' + sp + '</spf></policy_evaluated></row>\n' +
+              '  <identifiers><header_from>example.com</header_from></identifiers>\n  <auth_results>' +
+              dkims.map(function (d) { return '<dkim><domain>' + d[0] + '</domain><selector>' + d[1] + '</selector><result>' + d[2] + '</result></dkim>'; }).join('') +
+              spfs.map(function (d) { return '<spf><domain>' + d[0] + '</domain><result>' + d[1] + '</result></spf>'; }).join('') +
+              '</auth_results>\n </record>\n';
+          }
+
+          if (typeof DecompressionStream === 'undefined') errors.push('This browser can\'t unpack .zip or .gz files. Unzip the report first and paste the XML, or use a current Chrome, Firefox, Safari or Edge.');
+          var drop = $('drr-drop'), file = $('drr-file'), xml = $('drr-xml');
+          $('drr-pick').addEventListener('click', function () { file.click(); });
+          file.addEventListener('change', function () { addFiles(file.files); file.value = ''; });
+          drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('is-over'); });
+          drop.addEventListener('dragleave', function () { drop.classList.remove('is-over'); });
+          drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('is-over'); addFiles(e.dataTransfer.files); });
+          xml.addEventListener('input', function () {
+            reports = reports.filter(function (r) { return !r.pasted; });
+            errors = errors.filter(function (e) { return e.indexOf('Pasted XML') !== 0; });
+            if (xml.value.trim()) {
+              try { addText('pasted', xml.value); reports[reports.length - 1].pasted = true; }
+              catch (e) { errors.push('Pasted XML: ' + e.message + '.'); }
+            }
+            render();
+          });
+          $('drr-sample').addEventListener('click', function () { xml.value = SAMPLE; xml.parentNode.open = true; xml.dispatchEvent(new Event('input')); });
+          $('drr-clear').addEventListener('click', function () { reports = []; errors = []; xml.value = ''; render(); });
+          render();
+        })();
+      </script>
