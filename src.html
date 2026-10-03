@@ -92,7 +92,7 @@ category: DeveloperApplication
         .post .drr-row { margin: 14px 0 0; }
         .drr-btn { padding: 8px 14px; font-family: var(--mono); font-size: 13px; color: var(--paper); background: var(--ink); border: 0; border-radius: 4px; cursor: pointer; }
         .drr-btn--quiet { color: var(--ink); background: none; border: 1px solid var(--rule); }
-        .post .drr-err { margin: 0 0 12px; padding: 10px 14px; border-left: 3px solid var(--signal); font-size: 15px; }
+        .post .drr-err { margin: 0 0 12px; padding: 10px 14px; border-left: 3px solid var(--ink); font-size: 15px; }
         .drr-card { margin: 8px 0 24px; padding: 20px 22px; border: 2px solid var(--ink); border-radius: 6px; }
         .post .drr-card p { margin: 0; font-size: 15px; }
         .post .drr-card p + p { margin-top: 8px; }
@@ -103,7 +103,8 @@ category: DeveloperApplication
         .post .drr-list li { display: flex; gap: 10px; margin: 0; padding: 11px 0; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.5; }
         .post .drr-list li:last-child { border-bottom: 1px solid var(--rule); }
         .drr-tag { flex: 0 0 3.2rem; padding-top: 3px; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--faint); }
-        .drr-tag--fail { color: var(--signal); font-weight: 600; }
+        .drr-tag--fail { color: var(--paper); background: var(--ink); font-weight: 600; text-align: center; align-self: flex-start; margin-top: 2px; padding: 1px 0; border-radius: 3px; }
+        .drr-tag--pass { color: var(--signal); font-weight: 600; }
         .drr-main { flex: 1 1 auto; min-width: 0; }
         .post .drr-main p { margin: 0; }
         .post .drr-main p + p { margin-top: 4px; }
@@ -301,7 +302,7 @@ category: DeveloperApplication
               if (!s.dkim.length) auth.push('no DKIM signature');
               var disp = Object.keys(s.disp).filter(function (k) { return k !== 'none'; }).map(function (k) { return n(s.disp[k]) + ' ' + esc(k === 'pass' ? 'passed' : k === 'quarantine' ? 'sent to spam' : k === 'reject' ? 'rejected' : k); });
               var reasons = Object.keys(s.reasons).map(function (r) { return r.replace(/_/g, ' '); });
-              h += '<li><span class="drr-tag' + (s.pass ? '' : ' drr-tag--fail') + '">' + (s.pass ? 'PASS' : 'FAIL') + '</span><span class="drr-main">' +
+              h += '<li><span class="drr-tag' + (s.pass ? ' drr-tag--pass' : ' drr-tag--fail') + '">' + (s.pass ? 'PASS' : 'FAIL') + '</span><span class="drr-main">' +
                 '<p class="drr-head"><a href="https://bgp.he.net/ip/' + encodeURIComponent(s.ip) + '" target="_blank" rel="noopener"><code>' + esc(s.ip) + '</code></a>' +
                 '<span class="drr-count">' + esc(plural(s.count, 'message', 'messages')) + '</span>' +
                 (s.from ? '<span class="drr-meta">From: ' + code(s.from) + '</span>' : '') + '</p>' +
