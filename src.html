@@ -354,7 +354,13 @@ category: DeveloperApplication
             }
             render();
           });
-          $('drr-sample').addEventListener('click', function () { xml.value = SAMPLE; xml.parentNode.open = true; xml.dispatchEvent(new Event('input')); });
+          $('drr-sample').addEventListener('click', function () {
+            // A sample isn't a use: hold the use event back while it runs, and count the click as its own event.
+            var c = counted; counted = true;
+            xml.value = SAMPLE; xml.parentNode.open = true; xml.dispatchEvent(new Event('input'));
+            counted = c;
+            if (window.gtag) gtag('event', 'sample_tried');
+          });
           $('drr-clear').addEventListener('click', function () { reports = []; errors = []; xml.value = ''; render(); });
           render();
         })();
