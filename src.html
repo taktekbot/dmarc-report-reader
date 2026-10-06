@@ -4,8 +4,7 @@ description: Drop in the DMARC aggregate reports from Google, Microsoft and othe
 stand: Every server sending email as your domain, in one list. The files never leave this page.
 category: DeveloperApplication
 -->
-      <p>To read a DMARC report, drop the attachment here: the <code>.zip</code>, <code>.gz</code> or <code>.xml</code> file, as it arrived. This page opens it in your browser and lists every server that sent email using your domain, how many messages each sent, whether they passed DMARC, and what to fix for the ones that failed. Nothing is uploaded.</p>
-      <p>The reports come from the <code>rua=</code> address in your DMARC record. Each receiver that got mail "from" your domain (Gmail, Outlook.com, Yahoo and others) usually sends one a day. If you don't get any yet, set up the record first: <a href="/blog/why-business-emails-go-to-spam/">why business emails go to spam, and how to fix SPF, DKIM and DMARC</a> walks through it.</p>
+      <p>Drop in a DMARC report as it arrived (<code>.zip</code>, <code>.gz</code> or <code>.xml</code>) to see which servers fail DMARC and what to fix.</p>
 
       <h2>Step 1: add your reports</h2>
       <div class="drr">
@@ -24,6 +23,10 @@ category: DeveloperApplication
       <div id="drr-errors"></div>
       <div class="drr-card" id="drr-card" hidden></div>
       <div id="drr-out"></div>
+
+      <h2>What this reads, and where the reports come from</h2>
+      <p>To read a DMARC report, drop the attachment here: the <code>.zip</code>, <code>.gz</code> or <code>.xml</code> file, as it arrived. This page opens it in your browser and lists every server that sent email using your domain, how many messages each sent, whether they passed DMARC, and what to fix for the ones that failed. Nothing is uploaded.</p>
+      <p>The reports come from the <code>rua=</code> address in your DMARC record. Each receiver that got mail "from" your domain (Gmail, Outlook.com, Yahoo and others) usually sends one a day. If you don't get any yet, set up the record first: <a href="/blog/why-business-emails-go-to-spam/">why business emails go to spam, and how to fix SPF, DKIM and DMARC</a> walks through it.</p>
 
       <h2>Reading the result</h2>
       <p>Each line is one server (an IP address) that sent mail with your domain in the From: line, added up across all the reports you dropped in. Failing servers come first, biggest first.</p>
