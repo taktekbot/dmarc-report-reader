@@ -42,6 +42,7 @@ category: DeveloperApplication
         <li><strong>SPF passes, but for another domain.</strong> The service uses its own bounce address. That's normal, and it doesn't count for DMARC. Fix DKIM as above; some services also let you set a custom return-path on your domain.</li>
         <li><strong>Nothing passes, and you recognise the sender.</strong> A forgotten system: an old website, an accounting app sending invoices, a scanner that emails. Add it to your SPF record or turn on DKIM in it. If you can't, send its mail from a different address or a subdomain.</li>
         <li><strong>Nothing passes, and the IP belongs to nobody you use.</strong> Someone else is sending as your domain, or it's spam with a forged From:. That's the mail <code>p=reject</code> is for. You don't need to do anything for that source.</li>
+        <li><strong>DKIM or SPF passes for a subdomain of yours, and your record has <code>adkim=s</code> or <code>aspf=s</code>.</strong> Strict alignment needs the exact domain in the From: line, so a signature for <code>mail.example.com</code> doesn't count for mail from <code>example.com</code>. Set the service to use the exact domain, or remove the <code>s</code> tag: the default, relaxed, accepts subdomains.</li>
         <li><strong>SPF fails but DKIM passes for your domain.</strong> Usually forwarding: someone's mailbox forwards your email on, so the IP changes but the signature survives. The line already shows PASS. Nothing to fix.</li>
       </ol>
 
@@ -120,7 +121,7 @@ category: DeveloperApplication
         .post .drr-reports li { display: block; font-size: 14px; color: var(--muted); }
       </style>
 
-      <script>
+      <script>/* DMARC report reader */
         (function () {
           // PARSERS-START
           function kids(el, name) {
@@ -148,6 +149,9 @@ category: DeveloperApplication
               end: +txt(md, 'date_range/end') || 0,
               domain: txt(pp, 'domain'),
               p: txt(pp, 'p'),
+              adkim: txt(pp, 'adkim') || 'r',
+              aspf: txt(pp, 'aspf') || 'r',
+              testing: txt(pp, 'testing'),
               records: []
             };
             kids(fb, 'record').forEach(function (r) {
@@ -163,7 +167,9 @@ category: DeveloperApplication
                 envFrom: txt(ids, 'envelope_from').toLowerCase(),
                 dkimAuth: kids(ar, 'dkim').map(function (x) { return { domain: txt(x, 'domain').toLowerCase(), selector: txt(x, 'selector'), result: txt(x, 'result') }; }),
                 spfAuth: kids(ar, 'spf').map(function (x) { return { domain: txt(x, 'domain').toLowerCase(), result: txt(x, 'result') }; }),
-                org: rep.org
+                org: rep.org,
+                adkim: rep.adkim,
+                aspf: rep.aspf
               });
             });
             return rep;
@@ -178,7 +184,7 @@ category: DeveloperApplication
                 var k = r.ip + '|' + r.from + '|' + pass;
                 var s = map[k];
                 if (!s) {
-                  s = map[k] = { ip: r.ip, from: r.from, pass: pass, count: 0, disp: {}, orgs: {}, dkim: {}, spf: {}, reasons: {}, alignedDkim: false, alignedSpf: false };
+                  s = map[k] = { ip: r.ip, from: r.from, pass: pass, count: 0, disp: {}, orgs: {}, dkim: {}, spf: {}, reasons: {}, alignedDkim: false, alignedSpf: false, strictDkim: false, strictSpf: false };
                   list.push(s);
                 }
                 s.count += r.count;
@@ -186,6 +192,8 @@ category: DeveloperApplication
                 s.orgs[r.org] = 1;
                 if (r.dkim === 'pass') s.alignedDkim = true;
                 if (r.spf === 'pass') s.alignedSpf = true;
+                if (r.adkim === 's') s.strictDkim = true;
+                if (r.aspf === 's') s.strictSpf = true;
                 r.reasons.forEach(function (x) { s.reasons[x] = 1; });
                 r.dkimAuth.forEach(function (d) { s.dkim[d.result + '|' + d.domain + '|' + d.selector] = d; });
                 r.spfAuth.forEach(function (d) { s.spf[d.result + '|' + d.domain] = d; });
@@ -206,6 +214,13 @@ category: DeveloperApplication
             if (s.pass) {
               if (s.alignedDkim && !s.alignedSpf) return { n: 5, text: 'Passes on DKIM alone. If SPF fails here, the mail was probably forwarded. Nothing to fix.' };
               return null;
+            }
+            // Strict alignment (adkim=s / aspf=s) needs the exact From: domain, so a pass for a parent or subdomain still fails.
+            var near = function (d) { return d.domain && s.from && d.domain !== s.from && (d.domain.endsWith('.' + s.from) || s.from.endsWith('.' + d.domain)); };
+            var dkNear = s.strictDkim ? dkPass.filter(near) : [], spNear = s.strictSpf ? spPass.filter(near) : [];
+            if (dkNear.length || spNear.length) {
+              var tag = dkNear.length ? 'adkim=s' : 'aspf=s', what = dkNear.length ? 'DKIM' : 'SPF', d0 = (dkNear[0] || spNear[0]).domain;
+              return { n: 4, text: what + ' passes for ' + code(d0) + ', but your DMARC record has ' + code(tag) + ' (strict), which needs exactly ' + code(s.from) + '. Use that exact domain in this service, or remove ' + code(tag) + ' from your record.' };
             }
             if (dkPass.length) return { n: 1, text: 'DKIM passes, but signed as ' + dkPass.map(function (d) { return code(d.domain); }).join(', ') + ', not your domain. Turn on DKIM for your own domain in that service.' };
             if (spPass.length) return { n: 2, text: 'SPF passes, but for ' + spPass.map(function (d) { return code(d.domain); }).join(', ') + ', not your domain. Turn on DKIM for your domain in that service.' };
@@ -285,16 +300,27 @@ category: DeveloperApplication
               if (r.p) policies[r.p] = 1;
             });
             var pct = total ? Math.round((total - failN) / total * 1000) / 10 : 0;
+            // Never round a failure away: 1 failure in 5,000 is 99.9%, not 100%.
+            if (failN && pct === 100) pct = 99.9;
+            if (failN < total && pct === 0) pct = 0.1;
+            var testing = reports.some(function (r) { return r.testing === 'y'; });
             var known = src.filter(function (s) { return !s.pass && s.hint && s.hint.n < 3; }).length;
-            var next = !failN ? 'Every message passed. If this covers two weeks or more, you can move to p=quarantine.'
+            var strict = src.filter(function (s) { return !s.pass && s.hint && s.hint.n === 4; }).length;
+            var pol = Object.keys(policies), only = pol.length === 1 ? pol[0] : '';
+            var next = !total ? 'These reports list no messages. That happens when a receiver got no mail from your domain that day.'
+              : !failN ? (only === 'reject' ? 'Every message passed, and your policy is already p=reject. Nothing to tighten; keep an eye on new senders.'
+                : only === 'quarantine' ? 'Every message passed. If this covers two weeks or more, you can move from p=quarantine to p=reject.'
+                : 'Every message passed. If this covers two weeks or more, you can move to p=quarantine.')
+              : strict ? plural(strict, 'failing source passes', 'failing sources pass') + ' for a subdomain or parent of your domain, but your record asks for strict alignment. Fix that first.'
               : known ? known + ' failing ' + (known === 1 ? 'source is' : 'sources are') + ' a service signing with its own domain. Fix those first.'
               : 'The failing sources pass nothing. Check whether you recognise them before you tighten your policy.';
-            card.innerHTML = '<p class="drr-card__big">' + esc(pct + '% of ' + plural(total, 'message', 'messages') + ' passed DMARC.') + '</p>' +
+            card.innerHTML = '<p class="drr-card__big">' + esc(total ? pct + '% of ' + plural(total, 'message', 'messages') + ' passed DMARC.' : 'No messages in these reports.') + '</p>' +
               '<p>' + esc(plural(src.length, 'source', 'sources') + ' sent mail as ' + (Object.keys(domains).join(', ') || 'your domain') + '. ' +
                 (failN ? plural(failN, 'message', 'messages') + ' from ' + plural(failSrc, 'source', 'sources') + ' failed.' : 'None failed.')) + '</p>' +
               '<p>' + esc(next) + '</p>' +
               '<p class="drr-card__note">' + esc(plural(reports.length, 'report', 'reports') + ', ' + day(begin === Infinity ? 0 : begin) + ' to ' + day(end) +
-                '. Policy in the reports: p=' + (Object.keys(policies).join(', p=') || '?') + '.') + '</p>';
+                '. Policy in the reports: p=' + (pol.join(', p=') || '?') + '.' +
+                (testing ? ' Your record has t=y (testing mode), so receivers may exempt failing mail from the policy.' : '')) + '</p>';
             card.hidden = false;
 
             var h = '<p class="drr-sub">EVERY SERVER THAT SENT AS YOUR DOMAIN</p><ul class="drr-list">';
@@ -367,4 +393,4 @@ category: DeveloperApplication
           $('drr-clear').addEventListener('click', function () { reports = []; errors = []; xml.value = ''; render(); });
           render();
         })();
-      </script>
+      </script><!-- end DMARC report reader -->
