@@ -8,9 +8,9 @@ category: DeveloperApplication
 
       <h2>Step 1: add your reports</h2>
       <div class="drr">
-        <label for="drr-file">Report files (.zip, .gz or .xml; pick several at once if you have them)</label>
+        <label for="drr-file">Report files (.zip, .gz, .xml or .eml; pick several if you have them)</label>
         <div class="drr-drop" id="drr-drop">
-          <input id="drr-file" type="file" multiple accept=".zip,.gz,.xml,application/zip,application/gzip,text/xml">
+          <input id="drr-file" type="file" multiple accept=".zip,.gz,.xml,.eml,application/zip,application/gzip,text/xml,message/rfc822">
           <p>Drop files here, or <button type="button" class="drr-link" id="drr-pick">choose files</button>.</p>
         </div>
         <details class="drr-paste">
@@ -25,7 +25,7 @@ category: DeveloperApplication
       <div id="drr-out"></div>
 
       <h2>What this reads, and where the reports come from</h2>
-      <p>To read a DMARC report, drop the attachment here: the <code>.zip</code>, <code>.gz</code> or <code>.xml</code> file, as it arrived. This page opens it in your browser and lists every server that sent email using your domain, how many messages each sent, whether they passed DMARC, and what to fix for the ones that failed. Nothing is uploaded.</p>
+      <p>To read a DMARC report, drop the attachment here: the <code>.zip</code>, <code>.gz</code> or <code>.xml</code> file, as it arrived. If you saved the whole email instead (an <code>.eml</code> file), drop that: the page finds the report attached inside. This page opens it in your browser and lists every server that sent email using your domain, how many messages each sent, whether they passed DMARC, and what to fix for the ones that failed. Nothing is uploaded.</p>
       <p>The reports come from the <code>rua=</code> address in your DMARC record. Each receiver that got mail "from" your domain (Gmail, Outlook.com, Yahoo and others) usually sends one a day. If you don't get any yet, set up the record first: <a href="/blog/why-business-emails-go-to-spam/">why business emails go to spam, and how to fix SPF, DKIM and DMARC</a> walks through it.</p>
 
       <h2>Reading the result</h2>
@@ -255,20 +255,55 @@ category: DeveloperApplication
             }
             return Promise.all(jobs);
           }
+          // A saved email (.eml): pull out the base64 attachments that are zip, gzip or XML.
+          // Covers multipart mail and the single-part kind where the whole body is the attachment.
+          function fromEmail(text) {
+            var out = [], re = /content-transfer-encoding:\s*base64[^]*?\r?\n[ \t]*\r?\n([A-Za-z0-9+\/=\r\n]+)/gi, m;
+            while ((m = re.exec(text))) {
+              try {
+                var bin = atob(m[1].replace(/[\r\n]/g, '')), b = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+                var head = new TextDecoder().decode(b.subarray(0, 4096));
+                if ((b[0] === 0x1f && b[1] === 0x8b) || (b[0] === 0x50 && b[1] === 0x4b) || head.indexOf('<feedback') >= 0) out.push(b);
+              } catch (e) {}
+            }
+            return out;
+          }
           function open(name, bytes) {
-            if (bytes[0] === 0x1f && bytes[1] === 0x8b) return inflate(bytes, 'gzip').then(function (b) { return open(name.replace(/\.gz$/i, ''), b); });
+            if (bytes[0] === 0x1f && bytes[1] === 0x8b) return inflate(bytes, 'gzip').catch(function (e) {
+              // Some senders (Mimecast, for one) leave a line break after the gzip data, which browsers refuse. Trim and retry once.
+              var end = bytes.length;
+              while (end > 18 && (bytes[end - 1] === 0x0a || bytes[end - 1] === 0x0d || bytes[end - 1] === 0x20)) end--;
+              if (end === bytes.length) throw new Error('the .gz file looks damaged');
+              return inflate(bytes.subarray(0, end), 'gzip');
+            }).then(function (b) { return open(name.replace(/\.gz$/i, ''), b); });
             if (bytes[0] === 0x50 && bytes[1] === 0x4b) return unzip(bytes).then(function (files) {
               return Promise.all(files.map(function (f) { return open(f.name, f.bytes); })).then(function (x) { return [].concat.apply([], x); });
             });
-            return Promise.resolve([{ name: name, text: new TextDecoder().decode(bytes) }]);
+            var text = new TextDecoder().decode(bytes);
+            if (text.indexOf('<feedback') < 0 && /content-transfer-encoding:\s*base64/i.test(text)) {
+              var parts = fromEmail(text);
+              if (!parts.length) return Promise.reject(new Error('this email has no DMARC report attached'));
+              return Promise.all(parts.map(function (b) { return open(name, b); })).then(function (x) { return [].concat.apply([], x); });
+            }
+            return Promise.resolve([{ name: name, text: text }]);
           }
 
           var $ = function (id) { return document.getElementById(id); };
           var reports = [], errors = [], counted = false;
 
           function addText(name, text) {
-            var doc = new DOMParser().parseFromString(text, 'text/xml');
-            if (doc.getElementsByTagName('parsererror').length) throw new Error('the XML is incomplete or broken');
+            var doc = new DOMParser().parseFromString(text, 'text/xml'), bad = doc.getElementsByTagName('parsererror')[0];
+            // Some receivers put stray text or an unclosed tag before <feedback>; try again from <feedback> on.
+            var a = text.indexOf('<feedback'), z = text.lastIndexOf('</feedback>');
+            if (bad && a > 0 && z > a) {
+              var again = new DOMParser().parseFromString(text.slice(a, z + 11), 'text/xml');
+              if (!again.getElementsByTagName('parsererror').length) { doc = again; bad = null; }
+            }
+            if (bad) {
+              var where = /line \d+/.exec(bad.textContent);
+              throw new Error('the XML is incomplete or broken' + (where ? ' (the browser stopped at ' + where[0] + ')' : ''));
+            }
             reports.push(parseReport(doc));
           }
           function addFiles(files) {
@@ -328,6 +363,7 @@ category: DeveloperApplication
               var auth = [];
               s.spf.forEach(function (d) { auth.push('SPF ' + esc(d.result || '?') + (d.domain ? ' for ' + code(d.domain) : '')); });
               s.dkim.forEach(function (d) { auth.push('DKIM ' + esc(d.result || '?') + (d.domain ? ' for ' + code(d.domain) : '') + (d.selector ? ' (selector ' + code(d.selector) + ')' : '')); });
+              if (!s.spf.length) auth.push('SPF: no details in the report');
               if (!s.dkim.length) auth.push('no DKIM signature');
               var disp = Object.keys(s.disp).filter(function (k) { return k !== 'none'; }).map(function (k) { return n(s.disp[k]) + ' ' + esc(k === 'pass' ? 'passed' : k === 'quarantine' ? 'sent to spam' : k === 'reject' ? 'rejected' : k); });
               var reasons = Object.keys(s.reasons).map(function (r) { return r.replace(/_/g, ' '); });
