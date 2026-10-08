@@ -44,6 +44,7 @@ category: DeveloperApplication
         <li><strong>Nothing passes, and the IP belongs to nobody you use.</strong> Someone else is sending as your domain, or it's spam with a forged From:. That's the mail <code>p=reject</code> is for. You don't need to do anything for that source.</li>
         <li><strong>DKIM or SPF passes for a subdomain of yours, and your record has <code>adkim=s</code> or <code>aspf=s</code>.</strong> Strict alignment needs the exact domain in the From: line, so a signature for <code>mail.example.com</code> doesn't count for mail from <code>example.com</code>. Set the service to use the exact domain, or remove the <code>s</code> tag: the default, relaxed, accepts subdomains.</li>
         <li><strong>SPF fails but DKIM passes for your domain.</strong> Usually forwarding: someone's mailbox forwards your email on, so the IP changes but the signature survives. The line already shows PASS. Nothing to fix.</li>
+        <li><strong>PASS, but DKIM is for another domain.</strong> The line passes on SPF alone. A Google Workspace domain that hasn't set up its own DKIM key shows this, with a signature for a domain ending in <code>gappssmtp.com</code>. When someone forwards that mail, SPF usually breaks and nothing is left to pass. Turn on DKIM for your own domain in that service.</li>
       </ol>
 
       <h2>When to move past p=none</h2>
@@ -145,6 +146,7 @@ category: DeveloperApplication
             var md = kid(fb, 'report_metadata'), pp = kid(fb, 'policy_published');
             var rep = {
               org: txt(md, 'org_name') || 'an unnamed receiver',
+              id: txt(md, 'report_id'),
               begin: +txt(md, 'date_range/begin') || 0,
               end: +txt(md, 'date_range/end') || 0,
               domain: txt(pp, 'domain'),
@@ -213,6 +215,8 @@ category: DeveloperApplication
             var spPass = s.spf.filter(function (d) { return d.result === 'pass'; });
             if (s.pass) {
               if (s.alignedDkim && !s.alignedSpf) return { n: 5, text: 'Passes on DKIM alone. If SPF fails here, the mail was probably forwarded. Nothing to fix.' };
+              // SPF carries the pass and DKIM is signed by someone else's domain (Google Workspace's default key, for one): forwarding will break it.
+              if (!s.alignedDkim && dkPass.length) return { n: 6, text: 'Passes on SPF alone. DKIM is signed as ' + dkPass.map(function (d) { return code(d.domain); }).join(', ') + ', not your domain, so when this mail is forwarded it can fail. Turn on DKIM for your own domain in that service.' };
               return null;
             }
             // Strict alignment (adkim=s / aspf=s) needs the exact From: domain, so a pass for a parent or subdomain still fails.
@@ -290,7 +294,7 @@ category: DeveloperApplication
           }
 
           var $ = function (id) { return document.getElementById(id); };
-          var reports = [], errors = [], counted = false;
+          var reports = [], errors = [], skipped = 0, pasteDup = false, counted = false;
 
           function addText(name, text) {
             var doc = new DOMParser().parseFromString(text, 'text/xml'), bad = doc.getElementsByTagName('parsererror')[0];
@@ -304,7 +308,11 @@ category: DeveloperApplication
               var where = /line \d+/.exec(bad.textContent);
               throw new Error('the XML is incomplete or broken' + (where ? ' (the browser stopped at ' + where[0] + ')' : ''));
             }
-            reports.push(parseReport(doc));
+            var rep = parseReport(doc);
+            // The same report added twice (its .zip, then the saved email holding it) would count every message twice.
+            if (rep.id && reports.some(function (x) { return x.org === rep.org && x.id === rep.id; })) { skipped++; return null; }
+            reports.push(rep);
+            return rep;
           }
           function addFiles(files) {
             return Promise.all([].map.call(files, function (f) {
@@ -354,6 +362,7 @@ category: DeveloperApplication
                 (failN ? plural(failN, 'message', 'messages') + ' from ' + plural(failSrc, 'source', 'sources') + ' failed.' : 'None failed.')) + '</p>' +
               '<p>' + esc(next) + '</p>' +
               '<p class="drr-card__note">' + esc(plural(reports.length, 'report', 'reports') + ', ' + day(begin === Infinity ? 0 : begin) + ' to ' + day(end) +
+                (skipped + pasteDup ? ' (' + plural(skipped + pasteDup, 'copy', 'copies') + ' of a report already added, not counted again)' : '') +
                 '. Policy in the reports: p=' + (pol.join(', p=') || '?') + '.' +
                 (testing ? ' Your record has t=y (testing mode), so receivers may exempt failing mail from the policy.' : '')) + '</p>';
             card.hidden = false;
@@ -413,8 +422,9 @@ category: DeveloperApplication
           xml.addEventListener('input', function () {
             reports = reports.filter(function (r) { return !r.pasted; });
             errors = errors.filter(function (e) { return e.indexOf('Pasted XML') !== 0; });
+            var held = skipped; pasteDup = false;
             if (xml.value.trim()) {
-              try { addText('pasted', xml.value); reports[reports.length - 1].pasted = true; }
+              try { var pr = addText('pasted', xml.value); if (pr) pr.pasted = true; else { skipped = held; pasteDup = true; } }
               catch (e) { errors.push('Pasted XML: ' + e.message + '.'); }
             }
             render();
@@ -426,7 +436,7 @@ category: DeveloperApplication
             counted = c;
             if (window.gtag) gtag('event', 'sample_tried');
           });
-          $('drr-clear').addEventListener('click', function () { reports = []; errors = []; xml.value = ''; render(); });
+          $('drr-clear').addEventListener('click', function () { reports = []; errors = []; skipped = 0; pasteDup = false; xml.value = ''; render(); });
           render();
         })();
       </script><!-- end DMARC report reader -->
