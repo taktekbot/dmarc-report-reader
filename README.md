@@ -13,7 +13,7 @@ It runs entirely in your browser. The files are never uploaded. Zip and gzip are
 - Forgiving where real reports are messy: a gzip with a stray line break after its end (seen from Mimecast) is trimmed and retried; stray text before `<feedback>` is skipped; a broken file says which line the browser stopped at.
 - Reads the RFC 7489 format and the RFC 9990 one (with or without the `urn:ietf:params:xml:ns:dmarc-2.0` namespace), comparing element names only.
 - Adds records up across all reports by source IP, From: domain and DMARC result. Failing sources come first, biggest first.
-- Pass or fail comes from `policy_evaluated` (DKIM or SPF pass after alignment), which is what DMARC counts. The hints come from `auth_results`: DKIM or SPF passing for another domain means a service needs DKIM set up for yours; nothing passing means a forgotten sender or someone else using the domain; DKIM-only passes are usually forwarding.
+- Pass or fail comes from `policy_evaluated` (DKIM or SPF pass after alignment), which is what DMARC counts. The hints come from `auth_results`: DKIM or SPF passing for another domain means a service needs DKIM set up for yours; nothing passing means a forgotten sender or someone else using the domain; DKIM-only passes are usually forwarding. A pass on SPF alone, with DKIM signed by another domain, gets a note too: forwarding can break it. The same report added twice (same receiver and report ID) is counted once.
 - Each IP links to a public lookup (bgp.he.net) to see who owns it. That link is the only thing that sends anything anywhere, and only if you click it.
 
 ## Tested on
