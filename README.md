@@ -14,6 +14,8 @@ It runs entirely in your browser. The files are never uploaded. Zip and gzip are
 - Reads the RFC 7489 format and the RFC 9990 one (with or without the `urn:ietf:params:xml:ns:dmarc-2.0` namespace), comparing element names only.
 - Adds records up across all reports by source IP, From: domain and DMARC result. Failing sources come first, biggest first.
 - Pass or fail comes from `policy_evaluated` (DKIM or SPF pass after alignment), which is what DMARC counts. The hints come from `auth_results`: DKIM or SPF passing for another domain means a service needs DKIM set up for yours; nothing passing means a forgotten sender or someone else using the domain; DKIM-only passes are usually forwarding. A pass on SPF alone, with DKIM signed by another domain, gets a note too: forwarding can break it. The same report added twice (same receiver and report ID) is counted once.
+- "Copy a summary to send" copies the result as plain text: the pass rate, the next step, every sending server with its SPF and DKIM results and hint, and a link back here. It's meant for an email to whoever runs your mail or DNS.
+- Google Analytics counts three events, with nothing you paste attached: `dmarc_report_read` (once per visit), `summary_copied`, and `sample_tried`. The sample and a copy of the sample never count as a use.
 - Each IP links to a public lookup (bgp.he.net) to see who owns it. That link is the only thing that sends anything anywhere, and only if you click it.
 
 ## Tested on

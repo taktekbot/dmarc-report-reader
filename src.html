@@ -22,6 +22,7 @@ category: DeveloperApplication
 
       <div id="drr-errors"></div>
       <div class="drr-card" id="drr-card" hidden></div>
+      <p class="drr-send" id="drr-send" hidden><button type="button" class="drr-copy" id="drr-copy">Copy a summary to send</button> to whoever runs your email or DNS.</p>
       <div id="drr-out"></div>
 
       <h2>What this reads, and where the reports come from</h2>
@@ -103,6 +104,10 @@ category: DeveloperApplication
         .post .drr-card p + p { margin-top: 8px; }
         .post .drr-card__big { font-size: 22px; line-height: 1.3; color: var(--ink); font-weight: 500; }
         .post .drr-card__note { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+        .post .drr-send { margin: -12px 0 24px; font-size: 14px; color: var(--muted); }
+        .post .drr-copy { font-family: var(--mono); font-size: 13px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+        .post .drr-copy:hover { border-color: var(--signal); color: var(--signal); }
+        .post .drr-copy:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
         .post .drr-sub { margin: 24px 0 6px; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; color: var(--faint); }
         .post .drr-list { list-style: none; margin: 0 0 24px; padding: 0; }
         .post .drr-list li { display: flex; gap: 10px; margin: 0; padding: 11px 0; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.5; }
@@ -294,7 +299,7 @@ category: DeveloperApplication
           }
 
           var $ = function (id) { return document.getElementById(id); };
-          var reports = [], errors = [], skipped = 0, pasteDup = false, counted = false;
+          var reports = [], errors = [], skipped = 0, pasteDup = false, counted = false, summary = '', fromSample = false;
 
           function addText(name, text) {
             var doc = new DOMParser().parseFromString(text, 'text/xml'), bad = doc.getElementsByTagName('parsererror')[0];
@@ -315,6 +320,7 @@ category: DeveloperApplication
             return rep;
           }
           function addFiles(files) {
+            fromSample = false;
             return Promise.all([].map.call(files, function (f) {
               return f.arrayBuffer().then(function (b) { return open(f.name, new Uint8Array(b)); }).then(function (docs) {
                 docs.forEach(function (d) {
@@ -332,7 +338,7 @@ category: DeveloperApplication
             $('drr-errors').innerHTML = errors.map(function (e) { return '<p class="drr-err">' + esc(e) + '</p>'; }).join('');
             $('drr-clear').hidden = !reports.length && !errors.length;
             var card = $('drr-card'), out = $('drr-out');
-            if (!reports.length) { card.hidden = true; out.innerHTML = ''; return; }
+            if (!reports.length) { card.hidden = true; $('drr-send').hidden = true; summary = ''; out.innerHTML = ''; return; }
             var src = combine(reports);
             var total = 0, failN = 0, failSrc = 0, begin = Infinity, end = 0, domains = {}, policies = {};
             src.forEach(function (s) { total += s.count; if (!s.pass) { failN += s.count; failSrc++; } });
@@ -391,6 +397,25 @@ category: DeveloperApplication
               return '<li>' + esc(r.org + ', ' + (r.domain || '?') + ', ' + day(r.begin) + ' to ' + day(r.end) + ': ' + plural(r.records.length, 'record', 'records')) + '</li>';
             }).join('') + '</ul>';
             out.innerHTML = h;
+
+            // The same findings as plain text, for an email to whoever runs the domain.
+            var plain = function (html) { return html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'); };
+            var lines = [card.querySelector('.drr-card__big').textContent, card.querySelectorAll('p')[1].textContent, 'Next: ' + next, card.querySelector('.drr-card__note').textContent];
+            [['FAILED DMARC', false], ['PASSED DMARC', true]].forEach(function (g) {
+              var part = src.filter(function (s) { return s.pass === g[1]; });
+              if (!part.length) return;
+              lines.push('', g[0] + ':');
+              part.forEach(function (s) {
+                var auth = s.spf.map(function (d) { return 'SPF ' + (d.result || '?') + (d.domain ? ' for ' + d.domain : ''); })
+                  .concat(s.dkim.map(function (d) { return 'DKIM ' + (d.result || '?') + (d.domain ? ' for ' + d.domain : '') + (d.selector ? ' (selector ' + d.selector + ')' : ''); }));
+                if (!s.dkim.length) auth.push('no DKIM signature');
+                lines.push('- ' + s.ip + ': ' + plural(s.count, 'message', 'messages') + (s.from ? ', From: ' + s.from : '') + '. ' + auth.join(', ') + '.');
+                if (s.hint) lines.push('  ' + plain(s.hint.text));
+              });
+            });
+            lines.push('', 'Read with https://taktekbot.com/dmarc-report-reader/ (the report never left my browser).');
+            summary = lines.join('\n');
+            $('drr-send').hidden = false;
             if (!counted && window.gtag) { counted = true; gtag('event', 'dmarc_report_read'); }
           }
 
@@ -420,6 +445,7 @@ category: DeveloperApplication
           drop.addEventListener('dragleave', function () { drop.classList.remove('is-over'); });
           drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('is-over'); addFiles(e.dataTransfer.files); });
           xml.addEventListener('input', function () {
+            fromSample = false;
             reports = reports.filter(function (r) { return !r.pasted; });
             errors = errors.filter(function (e) { return e.indexOf('Pasted XML') !== 0; });
             var held = skipped; pasteDup = false;
@@ -433,8 +459,16 @@ category: DeveloperApplication
             // A sample isn't a use: hold the use event back while it runs, and count the click as its own event.
             var c = counted; counted = true;
             xml.value = SAMPLE; xml.parentNode.open = true; xml.dispatchEvent(new Event('input'));
-            counted = c;
+            counted = c; fromSample = true;
             if (window.gtag) gtag('event', 'sample_tried');
+          });
+          $('drr-copy').addEventListener('click', function () {
+            var b = this;
+            if (!summary) return;
+            var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy a summary to send'; }, 1500); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(summary).then(done, function () { b.textContent = 'Couldn’t copy: your browser blocked it'; });
+            else b.textContent = 'Couldn’t copy: your browser blocked it';
+            if (!fromSample && window.gtag) gtag('event', 'summary_copied');
           });
           $('drr-clear').addEventListener('click', function () { reports = []; errors = []; skipped = 0; pasteDup = false; xml.value = ''; render(); });
           render();
